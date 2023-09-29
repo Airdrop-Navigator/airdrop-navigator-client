@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Airdrop Navigator WS Client</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: sans-serif;
+      }
+      .PageTitle {
+        margin: 30px 0 0;
+      }
+      .ConnectingView {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        max-width: 600px;
+        margin: 0 auto;
+      }
+      .WorkspaceView {
+        width: 920px;
+        margin: 0 auto 50px;
+      }
+    </style>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/vue@3"></script>
+    <script src="https://cdn.jsdelivr.net/npm/element-plus"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
+  </head>
+  <body>
+    <div id="app">
+      <div v-if="!isConnected" class="ConnectingView">
+        <h2 class="PageTitle">Подключение к серверу...</h2>
+      </div>
+
+      <div v-else class="WorkspaceView" style="margin-top: 50px">
+        <h2>Добро пожаловать в Airdrop Navigator!</h2>
+
+        <el-row justify="space-between" align="bottom" style="margin-top: 50px">
+          <h3 class="PageTitle">Адреса в работе</h3>
+          <el-dropdown>
+            <el-button type="primary">
+              Действия
+              <el-icon class="el-icon--right"
+                ><arrow-down></arrow-down
+              ></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  icon="Plus"
+                  @click="dialogsVisibility.generateKeys = true"
+                  >Сгенерировать ключи</el-dropdown-item
+                >
+                <el-dropdown-item
+                  icon="Upload"
+                  @click="dialogsVisibility.importKeys = true"
+                  >Импортировать ключи</el-dropdown-item
+                >
+                <el-dropdown-item
+                  icon="Download"
+                  @click="dialogsVisibility.exportKeys = true"
+                  >Экспортировать ключи</el-dropdown-item
+                >
+                <el-dropdown-item icon="List" @click="copyAllAddresses()"
+                  >Копировать адреса</el-dropdown-item
+                >
+                <el-dropdown-item
+                  icon="Refresh"
+                  @click="reconnectAllAddresses()"
+                  >Переподключить все</el-dropdown-item
+                >
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </el-row>
+
+        <el-table :data="accounts" style="width: 100%; margin-top: 30px">
+          <el-table-column prop="address" label="Адрес">
+            <template #default="{ row }">
+              <el-tooltip
+                content="Click to copy"
+                placement="left"
+                :show-after="1000"
+              >
+                <el-button @click="copy(row.address)" size="small" text>
+                  <code>{{ row.address }}</code>
+                </el-button>
+              </el-tooltip>
+            </template>
+          </el-table-column>
+          <el-table-column label="Статус">
+            <template #default="{ row }">
+              <el-tag
+                v-if="accountsStatus.get(row.address.toLowerCase()) === 'AUTHORIZING'"
+                type="info"
+                >Авторизация...</el-tag
+              >
+              <el-tag
+                v-else-if="accountsStatus.get(row.address.toLowerCase()) === 'ONLINE'"
+                type="success"
+                >Онлайн</el-tag
+              >
+              <el-tag v-else type="danger">Не авторизован</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="Действия" fixed="right" width="100">
+            <template #default="{ row }">
+              <el-dropdown>
+                <el-button text type="primary" size="small">
+                  Действия
+                  <el-icon class="el-icon--right"
+                    ><arrow-down></arrow-down
+                  ></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item icon="List" @click="copy(row.privateKey)"
+                      >Копировать приватный ключ</el-dropdown-item
+                    >
+                    <el-dropdown-item
+                      icon="Refresh"
+                      @click="reconnectAddress(row.address)"
+                      >Переподключить</el-dropdown-item
+                    >
+                    <el-dropdown-item
+                      icon="Delete"
+                      @click="removeAddress(row.address)"
+                      >Удалить</el-dropdown-item
+                    >
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <el-row justify="space-between" align="bottom" style="margin-top: 50px">
+          <h3 class="PageTitle">История транзакций</h3>
+          <el-dropdown>
+            <el-button type="primary">
+              Действия
+              <el-icon class="el-icon--right"
+                ><arrow-down></arrow-down
+              ></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item icon="Download" @click="exportLogs()"
+                  >Скачать логи</el-dropdown-item
+                >
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </el-row>
+
+        <el-row style="margin: 30px 0 20px; gap: 20px">
+          <el-select v-model="transactionsHistoryPerPage" style="width: 80px">
+            <el-option label="10" :value="10"></el-option>
+            <el-option label="100" :value="100"></el-option>
+            <el-option label="300" :value="300"></el-option>
+            <el-option label="Все" value="ALL"></el-option>
+          </el-select>
+
+          <el-pagination
+            v-if="transactionsHistoryPerPage !== 'ALL'"
+            v-model:current-page="transactionsHistoryPage"
+            :page-size="transactionsHistoryPerPage"
+            layout="prev, pager, next"
+            :total="transactionsHistory.length"
+          ></el-pagination>
+
+          <el-text>Всего: {{ transactionsHistory.length }}</el-text>
+        </el-row>
+
+        <el-table :data="transactionsHistoryComputed" style="width: 100%">
+          <el-table-column label="Date" prop="timestamp" width="180">
+            <template #default="{ row }">
+              {{ formatDateTime(row.date) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="txHash" prop="txHash">
+            <template #default="{ row }">
+              <el-tooltip
+                content="Click to copy"
+                placement="left"
+                :show-after="1000"
+              >
+                <el-button @click="copy(row.txHash)" size="small" text>
+                  <code>{{ row.txHash }}</code>
+                </el-button>
+              </el-tooltip>
+            </template>
+          </el-table-column>
+          <el-table-column label="From" prop="from">
+            <template #default="{ row }">
+              <el-tooltip
+                content="Click to copy"
+                placement="left"
+                :show-after="1000"
+              >
+                <el-button @click="copy(row.from)" size="small" text>
+                  <code>{{ row.from }}</code>
+                </el-button>
+              </el-tooltip>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <el-dialog
+        v-model="dialogsVisibility.generateKeys"
+        title="Сгенерировать ключи"
+        width="30%"
+      >
+        <el-form
+          label-position="top"
+          @submit.prevent.stop="wrapFormLoading('generateKeys', generateKeys)"
+        >
+          <el-form-item label="Количество">
+            <el-input type="number" v-model="generateKeysForm.count"></el-input>
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <div class="dialog-footer">
+            <el-button
+              type="primary"
+              :loading="formLoadingState.generateKeys"
+              @click="wrapFormLoading('generateKeys', generateKeys)"
+              >Сгенерировать</el-button
+            >
+          </div>
+        </template>
+      </el-dialog>
+
+      <el-dialog
+        v-model="dialogsVisibility.importKeys"
+        title="Импортировать ключи"
+        width="50%"
+      >
+        <el-tabs v-model="importKeysForm.type">
+          <el-tab-pane label="Файл" name="file">
+            <el-form
+              label-position="top"
+              @submit.prevent.stop="wrapFormLoading('importKeys', importKeys)"
+            >
+              <el-form-item label="Файл с ключами">
+                <el-input
+                  type="file"
+                  v-model="importKeysForm.file"
+                  ref="importKeysFileRef"
+                ></el-input>
+              </el-form-item>
+              <el-form-item label="Пароль шифрования">
+                <el-input
+                  type="password"
+                  v-model="importKeysForm.password"
+                ></el-input>
+              </el-form-item>
+            </el-form>
+          </el-tab-pane>
+          <el-tab-pane label="Текст" name="text">
+            <el-form
+              label-position="top"
+              @submit.prevent.stop="wrapFormLoading('importKeys', importKeys)"
+            >
+              <el-form-item label="Приватные ключи" tip="1234">
+                <el-input
+                  type="textarea"
+                  v-model="importKeysForm.text"
+                  :rows="10"
+                ></el-input>
+                <el-text class="" size="small"
+                  >Каждый приватный ключ нужно вводить с новой строки.</el-text
+                >
+              </el-form-item>
+            </el-form>
+          </el-tab-pane>
+        </el-tabs>
+        <template #footer>
+          <div class="dialog-footer">
+            <el-button
+              type="primary"
+              :loading="formLoadingState.generateKeys"
+              @click="wrapFormLoading('importKeys', importKeys)"
+              >Импортировать</el-button
+            >
+          </div>
+        </template>
+      </el-dialog>
+
+      <el-dialog
+        v-model="dialogsVisibility.exportKeys"
+        title="Экспортировать ключи"
+        width="30%"
+      >
+        <el-form
+          label-position="top"
+          @submit.prevent.stop="wrapFormLoading('exportKeys', exportKeys)"
+        >
+          <el-form-item label="Название файла">
+            <el-input v-model="exportKeysForm.fileName"></el-input>
+          </el-form-item>
+          <el-form-item label="Пароль шифрования">
+            <el-input
+              type="password"
+              v-model="exportKeysForm.password"
+            ></el-input>
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <div class="dialog-footer">
+            <el-button
+              type="primary"
+              :loading="formLoadingState.importKeys"
+              @click="wrapFormLoading('exportKeys', exportKeys)"
+              >Скачать</el-button
+            >
+          </div>
+        </template>
+      </el-dialog>
+    </div>
+    <script>
+      window.onbeforeunload = () => false;
+    </script>
+    <script type="module">
+      import { Web3 } from "https://cdn.jsdelivr.net/npm/web3@4.1.1/+esm";
+      import io from "https://cdn.jsdelivr.net/npm/socket.io-client@4.0.1/+esm";
+
+      const { createApp, ref, reactive, watch, computed } = window.Vue;
+      const { ElMessage } = window.ElementPlus;
+
+      const SOCKET_SERVER_URL = "https://fewcats.com/";
+      const PROVIDERS = {
+        eth: {
+          mainnet: "https://rpc.ankr.com/eth",
+          testnet: "https://rpc.ankr.com/eth_goerli",
+        },
+        optimism: {
+          mainnet: "https://rpc.ankr.com/optimism",
+          testnet: "https://rpc.ankr.com/optimism_testnet",
+        },
+        zora: {
+          mainnet: "https://rpc.zora.energy",
+          testnet: "https://testnet.rpc.zora.energy",
+        },
+      };
+
+      const encryptData = async (data, password) => {
+        const encoder = new TextEncoder();
+        const passwordBuffer = encoder.encode(password);
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+
+        const key = await crypto.subtle.importKey(
+          "raw",
+          passwordBuffer,
+          { name: "PBKDF2" },
+          false,
+          ["deriveKey"]
+        );
+
+        const derivedKey = await crypto.subtle.deriveKey(
+          { name: "PBKDF2", salt: salt, iterations: 1000, hash: "SHA-256" },
+          key,
+          { name: "AES-GCM", length: 256 },
+          true,
+          ["encrypt", "decrypt"]
+        );
+
+        const encoded = encoder.encode(data);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encryptedData = await crypto.subtle.encrypt(
+          { name: "AES-GCM", iv: iv },
+          derivedKey,
+          encoded
+        );
+
+        const encryptedArray = new Uint8Array(encryptedData);
+        const combinedArray = new Uint8Array(
+          salt.length + iv.length + encryptedArray.length
+        );
+        combinedArray.set(salt, 0);
+        combinedArray.set(iv, salt.length);
+        combinedArray.set(encryptedArray, salt.length + iv.length);
+
+        return Array.from(combinedArray)
+          .map((byte) => String.fromCharCode(byte))
+          .join("");
+      };
+
+      const decryptData = async (data, password) => {
+        const decoder = new TextDecoder();
+        const passwordBuffer = new TextEncoder().encode(password);
+        const dataArray = new Uint8Array(data.length).map((byte, i) =>
+          data.charCodeAt(i)
+        );
+
+        const salt = dataArray.slice(0, 16);
+        const iv = dataArray.slice(16, 28);
+        const encryptedData = dataArray.slice(28);
+
+        const key = await crypto.subtle.importKey(
+          "raw",
+          passwordBuffer,
+          { name: "PBKDF2" },
+          false,
+          ["deriveKey"]
+        );
+
+        const derivedKey = await crypto.subtle.deriveKey(
+          { name: "PBKDF2", salt: salt, iterations: 1000, hash: "SHA-256" },
+          key,
+          { name: "AES-GCM", length: 256 },
+          true,
+          ["encrypt", "decrypt"]
+        );
+
+        const decryptedData = await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: iv },
+          derivedKey,
+          encryptedData
+        );
+
+        return decoder.decode(decryptedData);
+      };
+
+      const downloadFile = (content, fileName, contentType) => {
+        const a = document.createElement("a");
+        const file = new Blob([content], { type: contentType });
+
+        a.href = URL.createObjectURL(file);
+        a.download = fileName;
+        a.click();
+
+        URL.revokeObjectURL(a.href);
+      };
+
+      const readFile = (file) =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (event) => resolve(event.target.result);
+          reader.onerror = (error) => reject(error);
+          reader.readAsText(file);
+        });
+
+      const formatDateTime = (date) => {
+        const options = {
+          year: "numeric",
+          month: "numeric",
+          day: "numeric",
+          hour: "numeric",
+          minute: "numeric",
+          second: "numeric",
+        };
+        return new Intl.DateTimeFormat("ru-RU", options).format(date);
+      };
+
+      const copy = (text) => {
+        navigator.clipboard
+          .writeText(text)
+          .then(() => ElMessage.success("Copied to clipboard"))
+          .catch((err) =>
+            ElMessage.error("Could not copy text to clipboard: ", err)
+          );
+      };
+
+      const socket = io(SOCKET_SERVER_URL);
+      const isConnected = ref(false);
+
+      const accounts = reactive([]);
+      const accountsStatus = reactive(new Map());
+      const getAccountByAddress = (address) =>
+        accounts.find(
+          (account) => account.address.toLowerCase() === address?.toLowerCase()
+        );
+
+      const dialogsVisibility = reactive({
+        generateKeys: false,
+        importKeys: false,
+        exportKeys: false,
+      });
+      const formLoadingState = reactive({
+        generateKeys: false,
+        importKeys: false,
+        exportKeys: false,
+      });
+      const generateKeysForm = reactive({ count: 0 });
+      const importKeysForm = reactive({ type: "file", text: "", password: "" });
+      const exportKeysForm = reactive({
+        fileName: "private_keys",
+        password: "",
+      });
+
+      const importKeysFileRef = ref(null);
+
+      const wrapFormLoading = async (formName, callback) => {
+        formLoadingState[formName] = true;
+        await callback().catch(console.error);
+        formLoadingState[formName] = false;
+      };
+
+      const generateKeys = async () => {
+        const count = generateKeysForm.count;
+        if (count <= 0)
+          return ElMessage.error("Введите корректное количество адресов");
+
+        const web3 = new Web3();
+
+        for (let i = 0; i < count; i++)
+          accounts.push(web3.eth.accounts.create());
+
+        ElMessage.success("Адреса успешно сгенерированы");
+        dialogsVisibility.generateKeys = false;
+        generateKeysForm.count = 0;
+      };
+
+      const clearImportKeysForm = () => {
+        Object.assign(importKeysForm, {
+          type: "file",
+          text: "",
+          file: null,
+          password: "",
+        });
+        if (importKeysFileRef.value) importKeysFileRef.value.files = "";
+      };
+      const importKeys = async () => {
+        const rawKeys =
+          importKeysForm.type === "file"
+            ? await importKeysFromFile()
+            : importKeysForm.text;
+        const keys = rawKeys
+          ?.split("\n")
+          .map((key) => key.trim())
+          .filter(Boolean)
+          .map((key) => (key.startsWith("0x") ? key : "0x" + key));
+
+        if (!keys?.length)
+          return ElMessage.error("Введите корректные приватные ключи");
+
+        const web3 = new Web3();
+        for (const key of keys) {
+          const account = web3.eth.accounts.privateKeyToAccount(key);
+          if (!getAccountByAddress(account.address)) accounts.push(account);
+        }
+
+        ElMessage.success("Адреса успешно импортированы");
+        clearImportKeysForm();
+        dialogsVisibility.importKeys = false;
+      };
+      const importKeysFromFile = () =>
+        new Promise(async (resolve, reject) => {
+          const { password } = importKeysForm;
+          const file = importKeysFileRef.value?.input.files[0];
+          if (!file) return ElMessage.error("Выберите файл с ключами");
+          if (!password)
+            return ElMessage.error("Введите пароль для расшифровки");
+
+          const content = await readFile(file).catch((error) => {
+            console.error(error);
+            ElMessage.error("Ошибка при чтении файла!");
+          });
+          if (!content) return reject();
+
+          const decryptedKeys = await decryptData(content, password).catch(
+            (err) => {
+              console.error(err);
+              ElMessage.error("Неверный пароль!");
+            }
+          );
+          if (!decryptedKeys) return reject();
+
+          resolve(decryptedKeys);
+        });
+
+      const exportKeys = async () => {
+        const { fileName, password } = exportKeysForm;
+
+        if (!fileName) return ElMessage.error("Введите название файла");
+        if (!password) return ElMessage.error("Введите пароль для шифрования");
+
+        const privateKeys = accounts
+          .map((account) => account.privateKey)
+          .join("\r\n");
+        const addresses = accounts
+          .map((account) => account.address)
+          .join("\r\n");
+        const encryptedKeys = await encryptData(privateKeys, password);
+
+        downloadFile(encryptedKeys, fileName, "text/plain;charset=utf-8");
+        downloadFile(addresses, "addresses", "text/plain;charset=utf-8");
+
+        ElMessage.success("Адреса успешно экспортированы");
+        dialogsVisibility.exportKeys = false;
+        exportKeysForm.fileName = "private_keys";
+        exportKeysForm.password = "";
+      };
+      const copyAllAddresses = () =>
+        copy(accounts.map((account) => account.address).join("\r\n"));
+
+      const removeAddress = async (address) => {
+        const account = getAccountByAddress(address);
+        if (!address) return ElMessage.error("Адрес не найден: " + address);
+
+        socket.emit("removeAddress", { address });
+        accountsStatus.delete(address.toLowerCase());
+        accounts.splice(accounts.indexOf(account), 1);
+      };
+
+      const reconnectAddress = async (address) => {
+        const account = getAccountByAddress(address);
+        if (!account) return ElMessage.error("Адрес не найден: " + address);
+
+        accountsStatus.set(address, "AUTHORIZING");
+        socket.emit("addAddress", { address });
+      };
+      const reconnectAllAddresses = async () => {
+        for (const account of accounts) {
+          accountsStatus.set(account.address, "AUTHORIZING");
+          socket.emit("addAddress", { address: account.address });
+        }
+      };
+
+      watch(accounts, () => {
+        for (const account of accounts) {
+          if (!accountsStatus.has(account.address.toLowerCase())) {
+            accountsStatus.set(account.address.toLowerCase(), "AUTHORIZING");
+            socket.emit("addAddress", { address: account.address });
+          }
+        }
+      });
+
+      const transactionsHistory = reactive([]);
+      const transactionsHistoryPage = ref(1);
+      const transactionsHistoryPerPage = ref(10);
+      const transactionsHistoryComputed = computed(() => {
+        const sorted = transactionsHistory.sort((a, b) => b.date - a.date);
+        return transactionsHistoryPerPage.value === "ALL"
+          ? sorted
+          : sorted.slice(
+              (transactionsHistoryPage.value - 1) *
+                transactionsHistoryPerPage.value,
+              transactionsHistoryPage.value * transactionsHistoryPerPage.value
+            );
+      });
+      const exportLogs = () =>
+        downloadFile(
+          transactionsHistory.map((log) => JSON.stringify(log)).join("\r\n"),
+          "logs",
+          "text/plain;charset=utf-8"
+        );
+
+      const app = createApp({
+        setup() {
+          return {
+            isConnected,
+            accounts,
+            accountsStatus,
+            dialogsVisibility,
+            generateKeysForm,
+            importKeysForm,
+            exportKeysForm,
+            importKeysFileRef,
+            formLoadingState,
+            transactionsHistory,
+            transactionsHistoryPage,
+            transactionsHistoryPerPage,
+            transactionsHistoryComputed,
+            formatDateTime,
+            generateKeys,
+            importKeys,
+            exportKeys,
+            exportLogs,
+            copy,
+            copyAllAddresses,
+            removeAddress,
+            reconnectAddress,
+            reconnectAllAddresses,
+            wrapFormLoading,
+          };
+        },
+      });
+      app.use(window.ElementPlus);
+      for (const [key, component] of Object.entries(
+        window.ElementPlusIconsVue
+      )) {
+        app.component(key, component);
+      }
+      app.mount("#app");
+
+      socket.on("connect", () => {
+        isConnected.value = true;
+        reconnectAllAddresses();
+      });
+      socket.on("disconnect", () => {
+        isConnected.value = false;
+        accountsStatus.clear();
+      });
+
+      socket.on("addressAuthChallenge", (message) => {
+        const account = getAccountByAddress(message.payload.address);
+        if (account) {
+          socket.emit("response-" + message.messageId, {
+            success: true,
+            signature: account.sign(message.payload.dataToSign),
+          });
+        } else {
+          ElMessage.error("Адрес не найден: " + message.payload.address);
+          socket.emit("response-" + message.messageId, { success: false });
+        }
+      });
+
+      socket.on("addressAuthChallengeFailed", (message) =>
+        accountsStatus.set(
+          message.payload.address.toLowerCase(),
+          "UNAUTHORIZED"
+        )
+      );
+      socket.on("addressAuthChallengeSuccess", (message) =>
+        accountsStatus.set(message.payload.address.toLowerCase(), "ONLINE")
+      );
+
+      socket.on("sendTransaction", async (message) => {
+        const account = getAccountByAddress(message.payload.transaction.from);
+        if (!account)
+          return ElMessage.error(
+            "Адрес не найден: " + message.payload.transaction.from
+          );
+
+        if (!PROVIDERS[message.payload.provider])
+          return ElMessage.error(
+            "Неизвестный провайдер: " + message.payload.provider
+          );
+        if (!PROVIDERS[message.payload.provider][message.payload.network])
+          return ElMessage.error(
+            "Неизвестная сеть: " + message.payload.network
+          );
+        const provider =
+          PROVIDERS[message.payload.provider][message.payload.network];
+
+        const web3 = new Web3(new Web3.providers.HttpProvider(provider));
+        web3.eth.accounts.wallet.add(account.privateKey);
+        const tx = await new Promise((resolve) => {
+          web3.eth
+            .sendTransaction(message.payload.transaction)
+            .once("transactionHash", (txHash) =>
+              resolve({ txHash, from: message.payload.transaction.from })
+            )
+            .on("error", (error) => {
+              ElMessage.error(
+                "Ошибка при отправке транзакции: " + error.message
+              );
+              resolve(error);
+            });
+        });
+
+        if (!tx || tx instanceof Error) {
+          console.error("Error sending transaction:", tx, message);
+          socket.emit("response-" + message.messageId, {
+            success: false,
+            error: tx,
+          });
+        } else {
+          console.log("Transaction sent:", tx, message);
+          transactionsHistory.push({
+            date: new Date(),
+            txHash: tx.txHash,
+            from: tx.from,
+          });
+          socket.emit("response-" + message.messageId, {
+            success: true,
+            txHash: tx.txHash,
+          });
+        }
+      });
+    </script>
+  </body>
+</html>
