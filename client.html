@@ -372,7 +372,7 @@
 
   const formatDateTime = (date) => {
     const options = { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }
-    return new Intl.DateTimeFormat('ru-RU', options).format(date)
+    return new Intl.DateTimeFormat('ru-RU', options).format(new Date(date))
   }
 
   const copy = (text) => {
