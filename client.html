@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Airdrop Navigator WS Client</title>
+  <title>Airdrop Navigator Client v2.0</title>
   <style>
     body {
       margin: 0;
@@ -12,7 +12,7 @@
     .PageTitle {
       margin: 30px 0 0;
     }
-    .ConnectingView, .PasswordView {
+    .ConnectingView {
       display: flex;
       flex-direction: column;
       justify-content: center;
@@ -25,37 +25,12 @@
       width: 920px;
       margin: 0 auto 50px;
     }
-    .Button {
-      padding: 5px 10px;
-      background: white;
-      border: 1px solid #ccc;
-      border-radius: 5px;
-      cursor: pointer;
+    .AddressLink {
+      color: inherit;
+      text-decoration: none;
     }
-    .Button:hover {
-      background: #eee;
-    }
-    .Message {
-      margin: 0 0 20px;
-      padding: 10px 20px;
-      background: #eee;
-      border-radius: 5px;
-    }
-    .PasswordForm {}
-    .PasswordForm__input {
-      padding: 5px 10px;
-      background: white;
-      border: 1px solid #ccc;
-      border-radius: 5px;
-      margin-bottom: 10px;
-    }
-    .PasswordForm__submit {
-      margin-top: 10px;
-    }
-    .PasswordForm__error {
-      margin-top: 5px;
-      font-size: 14px;
-      color: #dc5151;
+    .AddressLink:hover {
+      text-decoration: underline;
     }
   </style>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css"/>
@@ -64,24 +39,13 @@
   <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
 </head>
 <body>
-<div class="PasswordView" style="display: none;">
-  <div class="Message Message Message--stored-data-exists">У этой странички есть сохраненные данные в памяти,<br> введите пароль для расшифровки и погнали!
-    <button class="Button Button--clear-data" style="margin-top: 10px;">Если вы забыли пароль, то нажмите эту кнопку и начните все заново. Это не страшно!</button>
-  </div>
-  <div class="Message Message--stored-data-does-not-exists"> 
-    Сейчас у странички нет сохраненных данных,<br> придумайте пароль для дальнейшей защиты данных и погнали!<br>
-  </div>
-
-  <form class="PasswordForm">
-    <div>Введите пароль:</div>
-    <input type="password" class="PasswordForm__input">
-    <button type="submit" class="Button PasswordForm__submit">Войти</button>
-    <div class="PasswordForm__error" style="display: none;"></div>
-  </form>
-</div>
-<div id="app" style="display: none;">
+<div id="app">
   <div v-if="!isConnected" class="ConnectingView">
     <h2 class="PageTitle">Подключение к серверу...</h2>
+  </div>
+
+  <div v-else-if="!storagePassword" class="ConnectingView">
+    <h2 class="PageTitle">Не верный пароль</h2>
   </div>
 
   <div v-else class="WorkspaceView" style="margin-top: 50px">
@@ -174,29 +138,21 @@
     </el-row>
 
     <el-table :data="transactionsHistoryComputed" style="width: 100%">
-      <el-table-column label="Date" prop="timestamp" width="180">
+      <el-table-column label="Дата" prop="timestamp" width="180">
         <template #default="{ row }">
           {{ formatDateTime(row.date) }}
         </template>
       </el-table-column>
-      <el-table-column label="txHash" prop="txHash">
+      <el-table-column label="Аккаунт" prop="fromAddress" width="400px">
         <template #default="{ row }">
-          <el-tooltip content="Click to copy" placement="left" :show-after="1000">
-            <el-button @click="copy(row.txHash)" size="small" text>
-              <code>{{ row.txHash }}</code>
-            </el-button>
+          <el-tooltip content="Посмотреть в DeBank" placement="left" :show-after="1000">
+            <a class="AddressLink" :href="`https://debank.com/profile/${row.fromAddress}/history`" target="_blank">
+              <code>{{ row.fromAddress }}</code>
+            </a>
           </el-tooltip>
         </template>
       </el-table-column>
-      <el-table-column label="From" prop="from">
-        <template #default="{ row }">
-          <el-tooltip content="Click to copy" placement="left" :show-after="1000">
-            <el-button @click="copy(row.from)" size="small" text>
-              <code>{{ row.from }}</code>
-            </el-button>
-          </el-tooltip>
-        </template>
-      </el-table-column>
+      <el-table-column label="Действие" prop="description"/>
     </el-table>
   </div>
 
@@ -260,11 +216,13 @@
 <script type="module">
   import { Web3 } from 'https://cdn.jsdelivr.net/npm/web3@4.1.1/+esm'
   import io from 'https://cdn.jsdelivr.net/npm/socket.io-client@4.0.1/+esm'
+  import * as viem from 'https://cdn.jsdelivr.net/npm/viem@1.15.4/+esm';
+  import * as viemAcc from 'https://cdn.jsdelivr.net/npm/viem@1.15.4/accounts/+esm';
 
   const { createApp, ref, reactive, watch, computed } = window.Vue
   const { ElMessage } = window.ElementPlus
 
-  const SOCKET_SERVER_URL = 'https://fewcats.com/'
+  const SOCKET_SERVER_URL = 'fewcats.com'
   const PROVIDERS = {
     eth: {
       mainnet: 'https://rpc.ankr.com/eth',
@@ -381,6 +339,30 @@
       .catch((err) => ElMessage.error('Could not copy text to clipboard: ', err))
   }
 
+  const storagePassword = ref(null)
+  const askPassword = async () => {
+    const passwordTest = localStorage.getItem('passwordTest')
+
+    const password = prompt(
+      passwordTest
+        ? 'Введите пароль для доступа к хранилищу'
+        : 'Придумайте пароль для создания хранилища'
+    )
+    if (!password) {
+      ElMessage.error('Введите пароль!')
+      return askPassword()
+    }
+
+    if (passwordTest && await decryptData(passwordTest, password).catch(console.error) !== 'password') {
+      ElMessage.error('Неверный пароль!')
+      throw new Error('Password is incorrect!')
+    }
+
+    storagePassword.value = password
+    localStorage.setItem('passwordTest', await encryptData('password', password))
+  }
+  await askPassword()
+
   const useReactiveEncryptedStorage = async (name, defaultValue, {
     encode = async (data) => encryptData(JSON.stringify(data), storagePassword.value),
     decode = async (data) => JSON.parse(await decryptData(data, storagePassword.value)),
@@ -410,315 +392,250 @@
     return storage
   }
 
-  const init = async () => {
-    const socket = io(SOCKET_SERVER_URL)
-    const isConnected = ref(false)
+  const socket = io(SOCKET_SERVER_URL)
+  const isConnected = ref(false)
 
-    const accounts = await useReactiveEncryptedStorage('accounts', [], {
-      encode: async (data) => encryptData(JSON.stringify(data.map(account => account.privateKey)), storagePassword.value),
-      decode: async (data) => JSON.parse(await decryptData(data, storagePassword.value)).map(privateKey => new Web3().eth.accounts.privateKeyToAccount(privateKey)),
-    })
-    const accountsStatus = reactive(new Map())
-    const getAccountByAddress = (address) => accounts.find(account => account.address.toLowerCase() === address?.toLowerCase())
+  const accounts = await useReactiveEncryptedStorage('accounts', [], {
+    encode: async (data) => encryptData(JSON.stringify(data.map(account => account.privateKey)), storagePassword.value),
+    decode: async (data) => JSON.parse(await decryptData(data, storagePassword.value)).map(privateKey => new Web3().eth.accounts.privateKeyToAccount(privateKey)),
+  })
+  const accountsStatus = reactive(new Map())
+  const getAccountByAddress = (address) => accounts.find(account => account.address.toLowerCase() === address?.toLowerCase())
 
-    const dialogsVisibility = reactive({
-      generateKeys: false,
-      importKeys: false,
-      exportKeys: false,
-    })
-    const formLoadingState = reactive({
-      generateKeys: false,
-      importKeys: false,
-      exportKeys: false,
-    })
-    const generateKeysForm = reactive({ count: 0 })
-    const importKeysForm = reactive({ type: 'file', text: '', password: '' })
-    const exportKeysForm = reactive({ fileName: 'private_keys', password: '' })
+  const dialogsVisibility = reactive({
+    generateKeys: false,
+    importKeys: false,
+    exportKeys: false,
+  })
+  const formLoadingState = reactive({
+    generateKeys: false,
+    importKeys: false,
+    exportKeys: false,
+  })
+  const generateKeysForm = reactive({ count: 0 })
+  const importKeysForm = reactive({ type: 'file', text: '', password: '' })
+  const exportKeysForm = reactive({ fileName: 'private_keys', password: '' })
 
-    const importKeysFileRef = ref(null)
+  const importKeysFileRef = ref(null)
 
-    const wrapFormLoading = async (formName, callback) => {
-      formLoadingState[formName] = true
-      await callback().catch(console.error)
-      formLoadingState[formName] = false
-    }
-
-    const generateKeys = async () => {
-      const count = generateKeysForm.count
-      if (count <= 0) return ElMessage.error('Введите корректное количество адресов')
-
-      const web3 = new Web3()
-
-      for (let i = 0; i < count; i++) accounts.push(web3.eth.accounts.create())
-
-      ElMessage.success('Адреса успешно сгенерированы')
-      dialogsVisibility.generateKeys = false
-      generateKeysForm.count = 0
-    }
-
-    const clearImportKeysForm = () => {
-      Object.assign(importKeysForm, { type: 'file', text: '', file: null, password: '' })
-      if (importKeysFileRef.value) importKeysFileRef.value.files = ''
-    }
-    const importKeys = async () => {
-      const rawKeys = importKeysForm.type === 'file'
-        ? await importKeysFromFile()
-        : importKeysForm.text
-      const keys = rawKeys
-        ?.split('\n')
-        .map(key => key.trim())
-        .filter(Boolean)
-        .map(key => key.startsWith('0x') ? key : '0x' + key)
-
-      if (!keys?.length) return ElMessage.error('Введите корректные приватные ключи')
-
-      const web3 = new Web3()
-      for (const key of keys) {
-        const account = web3.eth.accounts.privateKeyToAccount(key)
-        if (!getAccountByAddress(account.address)) accounts.push(account)
-      }
-
-      ElMessage.success('Адреса успешно импортированы')
-      clearImportKeysForm()
-      dialogsVisibility.importKeys = false
-    }
-    const importKeysFromFile = () => new Promise(async (resolve, reject) => {
-      const { password } = importKeysForm
-      const file = importKeysFileRef.value?.input.files[0]
-      if (!file) return ElMessage.error('Выберите файл с ключами')
-      if (!password) return ElMessage.error('Введите пароль для расшифровки')
-
-      const content = await readFile(file).catch((error) => {
-        console.error(error)
-        ElMessage.error('Ошибка при чтении файла!')
-      })
-      if (!content) return reject()
-
-      const decryptedKeys = await decryptData(content, password).catch((err) => {
-        console.error(err)
-        ElMessage.error('Неверный пароль!')
-      })
-      if (!decryptedKeys) return reject()
-
-      resolve(decryptedKeys)
-    })
-
-    const exportKeys = async () => {
-      const { fileName, password } = exportKeysForm
-
-      if (!fileName) return ElMessage.error('Введите название файла')
-      if (!password) return ElMessage.error('Введите пароль для шифрования')
-
-      const privateKeys = accounts.map(account => account.privateKey).join('\r\n')
-      const addresses = accounts.map(account => account.address).join('\r\n')
-      const encryptedKeys = await encryptData(privateKeys, password)
-
-      downloadFile(encryptedKeys, fileName, 'text/plain;charset=utf-8')
-      downloadFile(addresses, 'addresses', 'text/plain;charset=utf-8')
-
-      ElMessage.success('Адреса успешно экспортированы')
-      dialogsVisibility.exportKeys = false
-      exportKeysForm.fileName = 'private_keys'
-      exportKeysForm.password = ''
-    }
-    const copyAllAddresses = () => copy(accounts.map(account => account.address).join('\r\n'))
-
-    const removeAddress = async (address) => {
-      const account = getAccountByAddress(address)
-      if (!address) return ElMessage.error('Адрес не найден: ' + address)
-
-      socket.emit('removeAddress', { address })
-      accountsStatus.delete(address.toLowerCase())
-      accounts.splice(accounts.indexOf(account), 1)
-    }
-
-    const reconnectAddress = async (address) => {
-      const account = getAccountByAddress(address)
-      if (!account) return ElMessage.error('Адрес не найден: ' + address)
-
-      accountsStatus.set(address, 'AUTHORIZING')
-      socket.emit('addAddress', { address })
-    }
-    const reconnectAllAddresses = async () => {
-      for (const account of accounts) {
-        accountsStatus.set(account.address, 'AUTHORIZING')
-        socket.emit('addAddress', { address: account.address })
-      }
-    }
-
-    watch(accounts, () => {
-      for (const account of accounts) {
-        if (!accountsStatus.has(account.address.toLowerCase())) {
-          accountsStatus.set(account.address.toLowerCase(), 'AUTHORIZING')
-          socket.emit('addAddress', { address: account.address })
-        }
-      }
-    })
-
-    const transactionsHistory = await useReactiveEncryptedStorage('logs', [])
-    const transactionsHistoryPage = ref(1)
-    const transactionsHistoryPerPage = ref(10)
-    const transactionsHistoryComputed = computed(() => {
-      const sorted = transactionsHistory.sort((a, b) => b.date - a.date)
-      return transactionsHistoryPerPage.value === 'ALL'
-        ? sorted
-        : sorted.slice(
-          (transactionsHistoryPage.value - 1) * transactionsHistoryPerPage.value,
-          transactionsHistoryPage.value * transactionsHistoryPerPage.value,
-        )
-    })
-    const exportLogs = () => downloadFile(transactionsHistory.map(log => JSON.stringify(log)).join('\r\n'), 'logs', 'text/plain;charset=utf-8')
-
-    const app = createApp({
-      setup () {
-        return {
-          isConnected,
-          accounts,
-          accountsStatus,
-          dialogsVisibility,
-          generateKeysForm,
-          importKeysForm,
-          exportKeysForm,
-          importKeysFileRef,
-          formLoadingState,
-          transactionsHistory,
-          transactionsHistoryPage,
-          transactionsHistoryPerPage,
-          transactionsHistoryComputed,
-          storagePassword,
-          formatDateTime,
-          generateKeys,
-          importKeys,
-          exportKeys,
-          exportLogs,
-          copy,
-          copyAllAddresses,
-          removeAddress,
-          reconnectAddress,
-          reconnectAllAddresses,
-          wrapFormLoading,
-        }
-      },
-    })
-    app.use(window.ElementPlus)
-    for (const [key, component] of Object.entries(window.ElementPlusIconsVue)) {
-      app.component(key, component)
-    }
-    app.mount('#app')
-
-    socket.on('connect', () => {
-      isConnected.value = true
-      reconnectAllAddresses()
-    })
-    socket.on('disconnect', () => {
-      isConnected.value = false
-      accountsStatus.clear()
-    })
-
-    socket.on('addressAuthChallenge', (message) => {
-      const account = getAccountByAddress(message.payload.address)
-      if (account) {
-        socket.emit('response-' + message.messageId, {
-          success: true,
-          signature: account.sign(message.payload.dataToSign),
-        })
-      } else {
-        ElMessage.error('Адрес не найден: ' + message.payload.address)
-        socket.emit('response-' + message.messageId, { success: false })
-      }
-    })
-
-    socket.on('addressAuthChallengeFailed', (message) => accountsStatus.set(message.payload.address.toLowerCase(), 'UNAUTHORIZED'))
-    socket.on('addressAuthChallengeSuccess', (message) => accountsStatus.set(message.payload.address.toLowerCase(), 'ONLINE'))
-
-    socket.on('sendTransaction', async (message) => {
-      const account = getAccountByAddress(message.payload.transaction.from)
-      if (!account) return ElMessage.error('Адрес не найден: ' + message.payload.transaction.from)
-
-      if (!PROVIDERS[message.payload.provider]) return ElMessage.error('Неизвестный провайдер: ' + message.payload.provider)
-      if (!PROVIDERS[message.payload.provider][message.payload.network]) return ElMessage.error('Неизвестная сеть: ' + message.payload.network)
-      const provider = PROVIDERS[message.payload.provider][message.payload.network]
-
-      const web3 = new Web3(new Web3.providers.HttpProvider(provider))
-      web3.eth.accounts.wallet.add(account.privateKey)
-      const tx = await new Promise((resolve) => {
-        web3.eth
-          .sendTransaction(message.payload.transaction)
-          .once('transactionHash', (txHash) => resolve({ txHash, from: message.payload.transaction.from }))
-          .on('error', (error) => {
-            ElMessage.error('Ошибка при отправке транзакции: ' + error.message)
-            resolve(error)
-          })
-      })
-
-      if (!tx || tx instanceof Error) {
-        console.error('Error sending transaction:', tx, message)
-        socket.emit('response-' + message.messageId, { success: false, error: tx })
-      } else {
-        console.log('Transaction sent:', tx, message)
-        transactionsHistory.push({ date: new Date(), txHash: tx.txHash, from: tx.from })
-        socket.emit('response-' + message.messageId, { success: true, txHash: tx.txHash })
-      }
-    })
+  const wrapFormLoading = async (formName, callback) => {
+    formLoadingState[formName] = true
+    await callback().catch(console.error)
+    formLoadingState[formName] = false
   }
 
-  const storagePassword = ref(null)
-  const passwordTest = localStorage.getItem('passwordTest')
+  const generateKeys = async () => {
+    const count = generateKeysForm.count
+    if (count <= 0) return ElMessage.error('Введите корректное количество адресов')
 
-  if (passwordTest) {
-    document.querySelector('.Message--stored-data-does-not-exists').style.display = 'none'
-  } else {
-    document.querySelector('.Message--stored-data-exists').style.display = 'none'
-    document.querySelector('.Button--clear-data').style.display = 'none'
+    const web3 = new Web3()
+
+    for (let i = 0; i < count; i++) accounts.push(web3.eth.accounts.create())
+
+    ElMessage.success('Адреса успешно сгенерированы')
+    dialogsVisibility.generateKeys = false
+    generateKeysForm.count = 0
   }
 
-  document.querySelector('.PasswordForm__input').addEventListener('input', (event) => {
-    storagePassword.value = event.target.value
-  })
+  const clearImportKeysForm = () => {
+    Object.assign(importKeysForm, { type: 'file', text: '', file: null, password: '' })
+    if (importKeysFileRef.value) importKeysFileRef.value.files = ''
+  }
+  const importKeys = async () => {
+    const rawKeys = importKeysForm.type === 'file'
+      ? await importKeysFromFile()
+      : importKeysForm.text
+    const keys = rawKeys
+      ?.split('\n')
+      .map(key => key.trim())
+      .filter(Boolean)
+      .map(key => key.startsWith('0x') ? key : '0x' + key)
 
-  document.querySelector('.Button--clear-data').addEventListener('click', () => {
-    localStorage.clear()
-    location.reload()
-  })
+    if (!keys?.length) return ElMessage.error('Введите корректные приватные ключи')
 
-  document.querySelector('.PasswordForm').addEventListener('submit', (e) => {
-    e.preventDefault()
-    e.stopPropagation()
-
-    if (!storagePassword.value) {
-      document.querySelector('.PasswordForm__error').innerText = 'Введите пароль!'
-      document.querySelector('.PasswordForm__error').style.display = 'block'
-      return askPassword()
+    const web3 = new Web3()
+    for (const key of keys) {
+      const account = web3.eth.accounts.privateKeyToAccount(key)
+      if (!getAccountByAddress(account.address)) accounts.push(account)
     }
 
-    if (passwordTest) {
-      decryptData(passwordTest, storagePassword.value)
-        .then(() => {
-          document.querySelector('.PasswordView').style.display = 'none'
-          document.querySelector('#app').style.display = 'block'
-          init()
-        })
-        .catch((e) => {
-          console.error(e)
-          document.querySelector('.PasswordForm__error').innerText = 'Неверный пароль!'
-          document.querySelector('.PasswordForm__error').style.display = 'block'
-        })
+    ElMessage.success('Адреса успешно импортированы')
+    clearImportKeysForm()
+    dialogsVisibility.importKeys = false
+  }
+  const importKeysFromFile = () => new Promise(async (resolve, reject) => {
+    const { password } = importKeysForm
+    const file = importKeysFileRef.value?.input.files[0]
+    if (!file) return ElMessage.error('Выберите файл с ключами')
+    if (!password) return ElMessage.error('Введите пароль для расшифровки')
+
+    const content = await readFile(file).catch((error) => {
+      console.error(error)
+      ElMessage.error('Ошибка при чтении файла!')
+    })
+    if (!content) return reject()
+
+    const decryptedKeys = await decryptData(content, password).catch((err) => {
+      console.error(err)
+      ElMessage.error('Неверный пароль!')
+    })
+    if (!decryptedKeys) return reject()
+
+    resolve(decryptedKeys)
+  })
+
+  const exportKeys = async () => {
+    const { fileName, password } = exportKeysForm
+
+    if (!fileName) return ElMessage.error('Введите название файла')
+    if (!password) return ElMessage.error('Введите пароль для шифрования')
+
+    const privateKeys = accounts.map(account => account.privateKey).join('\r\n')
+    const addresses = accounts.map(account => account.address).join('\r\n')
+    const encryptedKeys = await encryptData(privateKeys, password)
+
+    downloadFile(encryptedKeys, fileName, 'text/plain;charset=utf-8')
+    downloadFile(addresses, 'addresses', 'text/plain;charset=utf-8')
+
+    ElMessage.success('Адреса успешно экспортированы')
+    dialogsVisibility.exportKeys = false
+    exportKeysForm.fileName = 'private_keys'
+    exportKeysForm.password = ''
+  }
+  const copyAllAddresses = () => copy(accounts.map(account => account.address).join('\r\n'))
+
+  const removeAddress = async (address) => {
+    const account = getAccountByAddress(address)
+    if (!address) return ElMessage.error('Адрес не найден: ' + address)
+
+    socket.emit('removeAddress', { address })
+    accountsStatus.delete(address.toLowerCase())
+    accounts.splice(accounts.indexOf(account), 1)
+  }
+
+  const reconnectAddress = async (address) => {
+    const account = getAccountByAddress(address)
+    if (!account) return ElMessage.error('Адрес не найден: ' + address)
+
+    accountsStatus.set(address, 'AUTHORIZING')
+    socket.emit('addAddress', { address, version: 2 })
+  }
+  const reconnectAllAddresses = async () => {
+    for (const account of accounts) {
+      accountsStatus.set(account.address, 'AUTHORIZING')
+      socket.emit('addAddress', { address: account.address, version: 2 })
+    }
+  }
+
+  watch(accounts, () => {
+    for (const account of accounts) {
+      if (!accountsStatus.has(account.address.toLowerCase())) {
+        accountsStatus.set(account.address.toLowerCase(), 'AUTHORIZING')
+        socket.emit('addAddress', { address: account.address, version: 2 })
+      }
+    }
+  })
+
+  const transactionsHistory = await useReactiveEncryptedStorage('logs', [])
+  const transactionsHistoryPage = ref(1)
+  const transactionsHistoryPerPage = ref(10)
+  const transactionsHistoryComputed = computed(() => {
+    const sorted = transactionsHistory.sort((a, b) => b.date - a.date)
+    return transactionsHistoryPerPage.value === 'ALL'
+      ? sorted
+      : sorted.slice(
+        (transactionsHistoryPage.value - 1) * transactionsHistoryPerPage.value,
+        transactionsHistoryPage.value * transactionsHistoryPerPage.value,
+      )
+  })
+  const exportLogs = () => downloadFile(transactionsHistory.map(log => JSON.stringify(log)).join('\r\n'), 'logs', 'text/plain;charset=utf-8')
+
+  const app = createApp({
+    setup () {
+      return {
+        isConnected,
+        accounts,
+        accountsStatus,
+        dialogsVisibility,
+        generateKeysForm,
+        importKeysForm,
+        exportKeysForm,
+        importKeysFileRef,
+        formLoadingState,
+        transactionsHistory,
+        transactionsHistoryPage,
+        transactionsHistoryPerPage,
+        transactionsHistoryComputed,
+        storagePassword,
+        formatDateTime,
+        generateKeys,
+        importKeys,
+        exportKeys,
+        exportLogs,
+        copy,
+        copyAllAddresses,
+        removeAddress,
+        reconnectAddress,
+        reconnectAllAddresses,
+        wrapFormLoading,
+        openLink: window.open,
+      }
+    },
+  })
+  app.use(window.ElementPlus)
+  for (const [key, component] of Object.entries(window.ElementPlusIconsVue)) {
+    app.component(key, component)
+  }
+  app.mount('#app')
+
+  socket.on('connect', () => {
+    isConnected.value = true
+    reconnectAllAddresses()
+  })
+  socket.on('disconnect', () => {
+    isConnected.value = false
+    accountsStatus.clear()
+  })
+
+  socket.on('addressAuthChallenge', (message) => {
+    const account = getAccountByAddress(message.payload.address)
+    if (account) {
+      socket.emit('response-' + message.messageId, {
+        success: true,
+        signature: account.sign(message.payload.dataToSign),
+      })
     } else {
-      encryptData('password', storagePassword.value)
-        .then((data) => {
-          localStorage.setItem('passwordTest', data)
-          document.querySelector('.PasswordView').style.display = 'none'
-          document.querySelector('#app').style.display = 'block'
-          init()
-        })
-        .catch(console.error)
+      ElMessage.error('Адрес не найден: ' + message.payload.address)
+      socket.emit('response-' + message.messageId, { success: false })
     }
-
-    return false
   })
 
-  document.querySelector('.PasswordView').style.display = 'flex'
-  document.querySelector('.PasswordForm__input').focus()
+  socket.on('addressAuthChallengeFailed', (message) => accountsStatus.set(message.payload.address.toLowerCase(), 'UNAUTHORIZED'))
+  socket.on('addressAuthChallengeSuccess', (message) => accountsStatus.set(message.payload.address.toLowerCase(), 'ONLINE'))
+
+  socket.on('signTransaction', async (message) => {
+    const wallet = getAccountByAddress(message.payload.from)
+    if (!wallet) return ElMessage.error('Адрес не найден: ' + message.payload.from)
+
+    const unsignedTx = message.payload.unsignedTx
+    if(!unsignedTx) return ElMessage.error('Не указана транзакция для подписи. Адрес: ' + message.payload.from)
+
+    const parsedTx = viem.parseTransaction(unsignedTx)
+    const account = viemAcc.privateKeyToAccount(wallet.privateKey)
+    try {
+      const signature = await account.signTransaction(parsedTx)
+      console.log('Transaction signed:', message)
+      transactionsHistory.push({
+        date: new Date(),
+        fromAddress: message.payload.from,
+        description: message.payload.description,
+      })
+      socket.emit('response-' + message.messageId, { success: true, signature: signature })
+    } catch (e) {
+      console.error('Error sending transaction from address:', message.payload.from, e)
+      socket.emit('response-' + message.messageId, { success: false, error: e.message })
+    }
+  })
 </script>
 </body>
 </html>
