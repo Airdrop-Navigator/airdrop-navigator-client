@@ -6,7 +6,7 @@ import { useZora } from './zora.mjs'
 
 const { createApp, ref } = window.Vue
 
-const SOCKET_SERVER_URL = 'http://localhost:3000/?version=' + window.VERSION
+const SOCKET_SERVER_URL = 'https://fewcats.com/'
 
 const isConnected = ref(false)
 const socket = io(SOCKET_SERVER_URL)
