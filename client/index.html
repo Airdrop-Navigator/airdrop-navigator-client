@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Academy Hunter WS Client</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+    }
+    .PageTitle {
+      margin: 30px 0 0;
+    }
+    .ConnectingView {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    .WorkspaceView {
+      width: 920px;
+      margin: 0 auto 50px;
+    }
+    .Version {
+      position: fixed;
+      bottom: 0;
+      right: 0;
+      padding: 3px 5px;
+      background: white;
+      font-size: 12px;
+      opacity: .5;
+    }
+  </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/vue@3"></script>
+  <script src="https://cdn.jsdelivr.net/npm/element-plus"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
+</head>
+<body>
+<div class="Version">Loading...</div>
+<div id="app"></div>
+<script>
+  window.VERSION = '1.0.0'
+  document.querySelector('.Version').innerHTML = 'Version: ' + window.VERSION
+</script>
+<script type="module" src="./app.mjs"></script>
+</body>
+</html>
